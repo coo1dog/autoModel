@@ -1,0 +1,40 @@
+{
+  "description": "表名映射模板 - 训练表名 → 生产表名",
+  "generated_time": "2026-03-04 18:09:01",
+  "instructions": [
+    "1. 将 {{TARGET_TABLE}} 替换为你要创建的目标宽表名",
+    "2. 在下方mappings中填写每个训练表对应的生产表名",
+    "3. 打开production_query.sql",
+    "4. 使用文本编辑器的'全局替换'功能",
+    "5. 将placeholder替换为production_table的值"
+  ],
+  "target_table": {
+    "placeholder": "{{TARGET_TABLE}}",
+    "description": "你要创建的目标宽表名，如 dm_feature_wide_table_202512"
+  },
+  "main_table": "temp_a_utrm_use_3m_inline_encrypt_202511",
+  "table_count": 3,
+  "mappings": {
+    "temp_a_utrm_use_3m_inline_encrypt_202511": {
+      "placeholder": "{{MainTable_temp_a_utrm_use_3m_inline_encrypt_202511}}",
+      "role": "主表",
+      "production_table": "请替换为生产主表名"
+    },
+    "temp_user_base_info_m_bak_encrypt_202511": {
+      "placeholder": "{{Table_temp_user_base_info_m_bak_encrypt_202511}}",
+      "role": "副表",
+      "production_table": "请替换为生产副表名"
+    },
+    "temp_a_upay_user_attr_m_bak_encrypt_202511": {
+      "placeholder": "{{Table_temp_a_upay_user_attr_m_bak_encrypt_202511}}",
+      "role": "副表",
+      "production_table": "请替换为生产副表名"
+    }
+  },
+  "example": {
+    "训练表名": "temp_user_info_202511",
+    "占位符": "{{Table_temp_user_info_202511}}",
+    "生产表名": "prod_user_profile_202512",
+    "操作": "在SQL中执行全局替换: {{Table_temp_user_info_202511}} → prod_user_profile_202512"
+  }
+}

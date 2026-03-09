@@ -1,0 +1,11 @@
+﻿scikit-learn
+pandas
+numpy
+lightgbm
+shap
+openai
+joblib
+clickhouse-driver
+
+streamlit
+plotly

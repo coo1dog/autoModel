@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志
+*.log
+automl.log
+
+# 模型产出（体积大，按需决定是否追踪）
+saved_model/*.joblib
+saved_model/*.pkl
+saved_model/automl_pipeline.joblib
+saved_model/automl_pipeline_compatible.pkl
+
+# 数据集（CSV 文件通常较大，不建议入库）
+dataset/*.csv
+dataset_termchange/*.csv
+dateset_hcdr/*.csv
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 敏感配置（如含密码的 CK 配置）
+ck_config_example.json
+
+# 历史打包文件
+*.zip

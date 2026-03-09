@@ -1,0 +1,54 @@
+--- Generated Feature Genes (Screening Mode) ---
+Total Feature Genes: 48
+
+Main Table Genes (16):
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_f_use_date
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_price
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_l_use_date
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.sec_imei_use_days
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.sec_imei_l_use_date
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_sesolution
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.thir_imei_use_days
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_use_days
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_mode
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.bill_no
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_mdl
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_mon_gprs
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_gpu_rate
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.fir_imei_mon_gprs_4g
+  - LATEST: temp_a_utrm_use_3m_inline_encrypt_202511.sec_imei_sesolution
+
+Cross-Table Genes (32):
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.book_avail_bal (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.sc_total (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.fav_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.book_tot_bal (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l2m_fact_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.fact_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.book_kzj_bal (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.n3m_pay_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.month_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.sms_comm_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.sc_used (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.user_credit_val (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l3m_call_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l2m_pay_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.n3m_fav_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.call_comm_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.sc_freeze (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.call_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.book_bj_bal (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l1m_pay_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.n3m_gprs_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.n3m_fact_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l1m_call_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.l2m_call_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.pay_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.n3m_call_fee (window: None)
+  - LATEST: temp_a_upay_user_attr_m_bak_encrypt_202511.woff_bj_fee (window: None)
+  - LATEST: temp_user_base_info_m_bak_encrypt_202511.car_probabi (window: None)
+  - LATEST: temp_user_base_info_m_bak_encrypt_202511.community_price (window: None)
+  - LATEST: temp_user_base_info_m_bak_encrypt_202511.occu (window: None)
+  - LATEST: temp_user_base_info_m_bak_encrypt_202511.income_level (window: None)
+  - LATEST: temp_user_base_info_m_bak_encrypt_202511.sub_occu_name (window: None)
