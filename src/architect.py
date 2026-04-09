@@ -741,63 +741,150 @@ class FitnessEvaluator:
     def __init__(self, feature_engine: FeatureEngine):
         self.feature_engine = feature_engine
 
-    def evaluate(self, chromosome: ModelingChromosome, calculate_shap: bool = False) -> Dict[str, Any]:
+    def _prepare_evaluation_context(
+        self, chromosome: ModelingChromosome
+    ) -> Tuple[pd.DataFrame, pd.Series, List[str], List[str], Pipeline]:
+        """Build features and the reusable sklearn pipeline for a chromosome."""
+        X, y, num_features_orig, cat_features_orig = self.feature_engine.build_features(chromosome)
+
+        if y.nunique() < 2:
+            raise ValueError("Target variable has less than 2 classes.")
+
+        # Double-check excluded columns before the pipeline is constructed.
+        for bad_col in list(EXCLUDED_COLUMNS):
+            if hasattr(X, "columns") and bad_col in X.columns:
+                logging.warning(f"[评估器] 发现被禁用列残留，已移除: {bad_col}")
+                X = X.drop(columns=[bad_col])
+                if bad_col in num_features_orig:
+                    num_features_orig.remove(bad_col)
+                if bad_col in cat_features_orig:
+                    cat_features_orig.remove(bad_col)
+
+        numeric_transformer = SimpleImputer(strategy='median')
+        categorical_transformer = OneHotEncoder(handle_unknown='ignore')
+
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', numeric_transformer, num_features_orig),
+                ('cat', categorical_transformer, cat_features_orig)
+            ],
+            remainder='passthrough'
+        )
+
+        model_gene = next((g for g in chromosome.genes if isinstance(g, ModelGene)), None)
+        if model_gene:
+            if model_gene.alg == 'LGBMClassifier':
+                model_template = LGBMClassifier(**model_gene.params)
+            else:
+                logging.warning(f"[警告] 未知的模型算法: {model_gene.alg}，使用默认的LGBMClassifier。")
+                model_template = LGBMClassifier(random_state=42, verbose=-1)
+        else:
+            logging.warning(f"[警告] 染色体中没有模型基因，使用默认的LGBMClassifier。")
+            model_template = LGBMClassifier(random_state=42, verbose=-1)
+
+        model_pipeline = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('classifier', model_template)
+        ])
+        return X, y, num_features_orig, cat_features_orig, model_pipeline
+
+    def _fit_pipeline_and_collect_artifacts(
+        self,
+        model_pipeline: Pipeline,
+        X: pd.DataFrame,
+        y: pd.Series,
+        calculate_shap: bool = False
+    ) -> Dict[str, Any]:
+        """Train the final pipeline and optionally compute SHAP on sampled rows."""
+        artifacts: Dict[str, Any] = {}
+        logging.info("[评估器] 正在训练最终模型和预处理器...")
+        final_model = None
+
+        model_pipeline.fit(X, y)
+        artifacts['pipeline'] = model_pipeline
+        logging.info("[评估器] [OK] 最终模型和预处理器训练完成。")
+
+        if not calculate_shap:
+            return artifacts
+
+        logging.info("[SHAP] 启动 SHAP 分析...")
+        try:
+            SHAP_SAMPLE_SIZE = 8000
+            if len(X) > SHAP_SAMPLE_SIZE:
+                shap_sample_idx = np.random.RandomState(42).choice(len(X), SHAP_SAMPLE_SIZE, replace=False)
+                X_shap = X.iloc[shap_sample_idx]
+                logging.info(f"[SHAP] 数据量({len(X)})超过阈值，已采样 {SHAP_SAMPLE_SIZE} 行用于SHAP分析")
+            else:
+                X_shap = X
+
+            X_processed = model_pipeline.named_steps['preprocessor'].transform(X_shap)
+            final_model = model_pipeline.named_steps['classifier']
+
+            if isinstance(final_model, (LGBMClassifier, RandomForestClassifier)):
+                explainer = shap.TreeExplainer(final_model)
+                shap_values = explainer.shap_values(X_processed)
+
+                shap_values_class1 = shap_values[1] if isinstance(shap_values, list) else shap_values
+                mean_abs_shap = np.abs(shap_values_class1).mean(axis=0)
+                feature_names_out = model_pipeline.named_steps['preprocessor'].get_feature_names_out()
+                shap_dict = dict(zip(feature_names_out, mean_abs_shap))
+                artifacts['shap_values'] = shap_dict
+                logging.info(f"[SHAP] [OK] 分析完成，获得 {len(shap_dict)} 个特征的 SHAP 值。")
+            else:
+                logging.warning(f"[SHAP] 警告: 模型 {type(final_model).__name__} 不是受支持的 Tree 模型，跳过 SHAP 分析。")
+        except Exception as shap_e:
+            logging.error(f"[评估器] 错误: SHAP分析失败: {shap_e}")
+
+        return artifacts
+
+    def finalize_chromosome(
+        self,
+        chromosome: ModelingChromosome,
+        base_result: Optional[Dict[str, Any]] = None,
+        calculate_shap: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Reuse existing CV metrics and only run final fit/SHAP for the elite chromosome.
+        This avoids re-running 3-fold CV during elite refinement.
+        """
+        start_time = time.time()
+        result = dict(base_result or {})
+
+        try:
+            X, y, num_features_orig, cat_features_orig, model_pipeline = self._prepare_evaluation_context(chromosome)
+            artifacts = self._fit_pipeline_and_collect_artifacts(
+                model_pipeline=model_pipeline,
+                X=X,
+                y=y,
+                calculate_shap=calculate_shap
+            )
+            result.update(artifacts)
+            result['feature_count'] = len(num_features_orig) + len(cat_features_orig)
+
+            cv_time_ms = float((base_result or {}).get('cv_evaluation_time_ms', (base_result or {}).get('evaluation_time_ms', 0.0)))
+            final_fit_time_ms = (time.time() - start_time) * 1000
+            result['cv_evaluation_time_ms'] = cv_time_ms
+            result['final_training_time_ms'] = final_fit_time_ms
+            result['evaluation_time_ms'] = cv_time_ms + final_fit_time_ms
+            return result
+        except Exception as e:
+            logging.error(f"[评估器] 错误: 精英终训失败: {e}")
+            result['final_model_error'] = str(e)
+            result['final_training_time_ms'] = (time.time() - start_time) * 1000
+            result['evaluation_time_ms'] = float(result.get('cv_evaluation_time_ms', result.get('evaluation_time_ms', 0.0))) + result['final_training_time_ms']
+            return result
+
+    def evaluate(self, chromosome: ModelingChromosome, calculate_shap: bool = False, train_final_model: bool = True) -> Dict[str, Any]:
         """
         [V1.1] 执行完整的"评估"流程 (使用3-折交叉验证)，并返回一个包含"分数"和"成本"的字典。
         [V1.4] 新增：可选择性地计算并返回 SHAP 值。
         [V1.5] 修正：对齐基线脚本的预处理和评估流程。
+        [V2.9.1] 新增 train_final_model 参数：为 False 时跳过全量 fit，仅做 CV 出 AUC，节省 ~38% 训练时间。
         """
         start_time = time.time()
         
         try:
-            # 1) 特征构造
-            X, y, num_features_orig, cat_features_orig = self.feature_engine.build_features(chromosome)
-
-            # 检查 y 是否包含多于一个类别
-            if y.nunique() < 2:
-                logging.error(f"[评估错误] 目标变量 y 只包含一个类别，无法进行评估。")
-                return {'auc': 0.0, 'evaluation_time_ms': (time.time() - start_time) * 1000, 'error': 'Target variable has less than 2 classes.'}
-
-            # 双保险：如果上游误入任何被禁用列，这里再一次剔除
-            for bad_col in list(EXCLUDED_COLUMNS):
-                if hasattr(X, "columns") and bad_col in X.columns:
-                    logging.warning(f"[评估器] 发现被禁用列残留，已移除: {bad_col}")
-                    X = X.drop(columns=[bad_col])
-                    if bad_col in num_features_orig:
-                        num_features_orig.remove(bad_col)
-                    if bad_col in cat_features_orig:
-                        cat_features_orig.remove(bad_col)
-
-            # [V1.9 修正] 使用 ColumnTransformer 构建可复用的预处理管道
-            # 对数值特征进行缺失值填充
-            numeric_transformer = SimpleImputer(strategy='median')
-
-            # 对类别特征进行独热编码
-            categorical_transformer = OneHotEncoder(handle_unknown='ignore')
-
-            preprocessor = ColumnTransformer(
-                transformers=[
-                    ('num', numeric_transformer, num_features_orig),
-                    ('cat', categorical_transformer, cat_features_orig)
-                ],
-                remainder='passthrough' # 保留其他列（虽然可能没有）
-            )
-
-            # 3. 模型
-            model_gene = next((g for g in chromosome.genes if isinstance(g, ModelGene)), None)
-            if model_gene:
-                if model_gene.alg == 'LGBMClassifier':
-                    model_template = LGBMClassifier(**model_gene.params)
-                else: # Fallback for other models
-                    logging.warning(f"[警告] 未知的模型算法: {model_gene.alg}，使用默认的LGBMClassifier。")
-                    model_template = LGBMClassifier(random_state=42, verbose=-1)
-            else: # Fallback if no model gene
-                logging.warning(f"[警告] 染色体中没有模型基因，使用默认的LGBMClassifier。")
-                model_template = LGBMClassifier(random_state=42, verbose=-1)
-            
-            # 创建完整的 Pipeline
-            model_pipeline = Pipeline(steps=[('preprocessor', preprocessor),
-                                             ('classifier', model_template)])
+            X, y, num_features_orig, cat_features_orig, model_pipeline = self._prepare_evaluation_context(chromosome)
 
             # 5. [V2.8] 3-折交叉验证 (单次CV同时获取AUC和概率，避免双重计算)
             logging.debug("[调试] 开始3-折交叉验证...")
@@ -863,56 +950,28 @@ class FitnessEvaluator:
                 'auc_mean': auc_mean,
                 'auc_std': auc_std,
                 'feature_count': len(num_features_orig) + len(cat_features_orig),
+                'cv_evaluation_time_ms': 0.0,
                 **extended_metrics
             }
+            result['cv_evaluation_time_ms'] = (time.time() - start_time) * 1000
 
-            # [V1.9] 训练最终的预处理器和模型以供保存
-            logging.info("[评估器] 正在训练最终模型和预处理器...")
-            final_model = None
-            try:
-                # 在全部数据上训练Pipeline
-                model_pipeline.fit(X, y)
-                
-                # [V2.0] 直接保存完整的 Pipeline
-                result['pipeline'] = model_pipeline
-
-                logging.info("[评估器] [OK] 最终模型和预处理器训练完成。")
-
-                if calculate_shap:
-                    logging.info("[SHAP] 启动 SHAP 分析...")
-                    try:
-                        # [V2.8 关键修复] 对大数据集进行采样，防止内存溢出
-                        SHAP_SAMPLE_SIZE = 8000
-                        if len(X) > SHAP_SAMPLE_SIZE:
-                            shap_sample_idx = np.random.RandomState(42).choice(len(X), SHAP_SAMPLE_SIZE, replace=False)
-                            X_shap = X.iloc[shap_sample_idx]
-                            logging.info(f"[SHAP] 数据量({len(X)})超过阈值，已采样 {SHAP_SAMPLE_SIZE} 行用于SHAP分析")
-                        else:
-                            X_shap = X
-                        
-                        X_processed = model_pipeline.named_steps['preprocessor'].transform(X_shap)
-                        final_model = model_pipeline.named_steps['classifier']
-                        
-                        if isinstance(final_model, (LGBMClassifier, RandomForestClassifier)):
-                            explainer = shap.TreeExplainer(final_model)
-                            shap_values = explainer.shap_values(X_processed)
-                            
-                            shap_values_class1 = shap_values[1] if isinstance(shap_values, list) else shap_values
-                            mean_abs_shap = np.abs(shap_values_class1).mean(axis=0)
-                            
-                            feature_names_out = model_pipeline.named_steps['preprocessor'].get_feature_names_out()
-
-                            shap_dict = dict(zip(feature_names_out, mean_abs_shap))
-                            result['shap_values'] = shap_dict
-                            logging.info(f"[SHAP] [OK] 分析完成，获得 {len(shap_dict)} 个特征的 SHAP 值。")
-                        else:
-                            logging.warning(f"[SHAP] 警告: 模型 {type(final_model).__name__} 不是受支持的 Tree 模型，跳过 SHAP 分析。")
-                    except Exception as shap_e:
-                         logging.error(f"[评估器] 错误: SHAP分析失败: {shap_e}")
-
-            except Exception as final_model_e:
-                logging.error(f"[评估器] 错误: 最终模型训练失败: {final_model_e}")
-                result['final_model_error'] = str(final_model_e)
+            # [V2.9.1 优化] 仅当 train_final_model=True 时才在全量数据上训练最终模型
+            # 普通评估（搜索阶段）只需 CV 出 AUC 即可，无需 full fit，节省 ~38% 训练时间
+            if train_final_model:
+                try:
+                    result.update(
+                        self._fit_pipeline_and_collect_artifacts(
+                            model_pipeline=model_pipeline,
+                            X=X,
+                            y=y,
+                            calculate_shap=calculate_shap
+                        )
+                    )
+                except Exception as final_model_e:
+                    logging.error(f"[评估器] 错误: 最终模型训练失败: {final_model_e}")
+                    result['final_model_error'] = str(final_model_e)
+            else:
+                logging.debug("[评估器] 搜索阶段评估，跳过全量训练 (train_final_model=False)")
 
             result['evaluation_time_ms'] = (time.time() - start_time) * 1000
             return result

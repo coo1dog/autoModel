@@ -4,11 +4,15 @@
 这是 KnowledgeGraphInterface 接口的具体实现。
 这个类是连接"标准业务世界"和"混乱物理数据"的核心桥梁。
 
-V1.0 架构约定：
-- 在内存中创建真实的Pandas数据库（模拟）
+当前主线架构约定：
+- 优先接收外部已加载好的 DataFrame 集合（例如 CSV / CK 读入结果）
 - 实现KnowledgeGraphInterface中的所有翻译功能
 - 将物理表名和列名翻译为标准业务名称
 - 提供统一的DataFrame接口用于特征工程
+
+补充说明：
+- 早期版本保留了"根据推断模式在内存中模拟数据库"的能力，主要用于演示和自测；
+- 生产主线已切换为"主程序先取数，翻译官只负责映射和访问"。
 """
 
 import pandas as pd
@@ -19,10 +23,14 @@ from knowledge_graph_interface import KnowledgeGraphInterface
 
 class KnowledgeGraphTranslator(KnowledgeGraphInterface):
     """
-    V1.0 "翻译官"的具体实现。
+    当前主线"翻译官"的具体实现。
     
-    它在内部创建并持有一个"内存数据库"（Pandas DataFrames），
-    并负责将标准业务请求"翻译"为对这些DataFrame的访问。
+    当前主线下，它主要持有一组已经准备好的 Pandas DataFrame，
+    并负责将标准业务请求"翻译"为对这些 DataFrame 的访问。
+
+    历史能力说明：
+    - 若未传入外部 DataFrame，类中仍保留创建模拟内存数据的兜底能力；
+    - 该路径主要用于历史演示/自测，不是当前生产主线。
 
     外部数据注入示例：
     >>> ext_tables = {
@@ -40,8 +48,9 @@ class KnowledgeGraphTranslator(KnowledgeGraphInterface):
     def __init__(self, inferred_schema: Dict[str, Any], physical_target_table: str, physical_target_column: str, dataframes: Optional[Dict[str, pd.DataFrame]] = None, disable_entity_fallback: bool = False):
         """
         构造函数。
-        注意：它不需要 `raw_db_connection`，因为它将自己创建内存数据库。
-        dataframes: 外部注入的物理表集合，键为物理表名，值为DataFrame。若提供，则跳过随机生成。
+        当前主线不要求 `raw_db_connection`，而是优先使用 `dataframes`。
+        dataframes: 外部注入的物理表集合，键为物理表名，值为 DataFrame。
+            若提供，则直接走主线逻辑；若不提供，才回退到历史模拟数据路径。
         """
         logging.info("\n--- \"数据翻译官\"模块启动 ---")
         self.inferred_schema = inferred_schema

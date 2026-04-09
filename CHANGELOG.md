@@ -6,6 +6,112 @@
 
 ---
 
+## [v2.9.4] - 2026-04-02
+
+### 📋 接口注释对齐（无运行逻辑改动）
+
+继续审阅翻译官相关模块后，发现 `knowledge_graph_interface.py` 中仍保留“翻译官默认持有原始数据库连接”的早期注释，与当前项目真实主线（主程序先将 CSV / CK 数据加载为 DataFrame，再交由 `KnowledgeGraphTranslator` 做语义映射）不一致，容易误导后续维护者。
+
+### Changed（注释修正）
+
+#### knowledge_graph_interface.py
+| 改动项 | 旧表述 | 新表述 | 原因 |
+|--------|--------|--------|------|
+| 接口定位 | 默认面向数据库直连 | 面向能力契约，数据来源可为 DataFrame / DB 连接等 | 与当前主线一致 |
+| `get_entity_dataframe()` 说明 | 从数据库加载该表 | 从底层数据载体中取表，当前主线通常是预加载 DataFrame | 避免误解 |
+| `get_relationship_keys()` 说明 | 简单的关系名→外键名 | 当前主线实际返回更丰富的关系元数据对象 | 与真实实现对齐 |
+
+#### data_translator.py
+| 改动项 | 旧表述 | 新表述 | 原因 |
+|--------|--------|--------|------|
+| 模块说明 | 以内存模拟数据库为主 | 以外部 DataFrame 注入为主，模拟内存数据为兜底 | 与当前生产主线一致 |
+
+### 影响评估
+- **运行逻辑**: **零影响**。仅修正注释与说明文字
+- **维护成本**: **降低**。后续阅读接口时不再被“数据库直连”旧表述误导
+
+---
+
+## [v2.9.3] - 2026-04-02
+
+### 🔍 变更背景
+继续审计训练主流程后发现，`v2.9.1` 虽已让普通种群评估跳过无用的 full fit，但**每代精英**仍会再次调用完整 `evaluate()`，重复执行 3-fold CV 后才做 full fit + SHAP；同时最终返回的冠军仍是“最后一代冠军”，而非整个演化过程中的**全局最佳冠军**。
+
+### Changed（修改）
+
+#### architect.py
+| 改动项 | 旧逻辑 | 新逻辑 | 原因 |
+|--------|--------|--------|------|
+| 精英终训路径 | 精英复评复用 `evaluate()`，重复跑 3-fold CV + full fit + SHAP | 新增 `finalize_chromosome()`，复用本代已算好的 CV 指标，仅执行 full fit + SHAP | 去掉精英阶段重复 CV |
+| 评估耗时记录 | `evaluation_time_ms` 混合记录 | 新增 `cv_evaluation_time_ms`、`final_training_time_ms` | 区分搜索评估耗时和精英终训耗时 |
+
+#### main.py
+| 改动项 | 旧逻辑 | 新逻辑 | 原因 |
+|--------|--------|--------|------|
+| 精英评估调用 | 每代精英再次 `evaluate(..., train_final_model=True)` | 每代精英改为 `finalize_chromosome(...)` | 避免重复 3-fold CV |
+| 最终冠军选择 | 直接覆盖为最后一代冠军 | 仅当综合得分刷新时更新为全局最佳冠军 | 防止最后一代回退导致保存次优模型 |
+
+### 影响评估
+- **AUC 搜索效果**: **零影响**。搜索选择仍完全由普通评估阶段的 OOF AUC 驱动
+- **最终模型质量**: **更稳**。最终保存对象从“最后一代冠军”修正为“全局最佳冠军”
+- **训练耗时**: 在 `v2.9.1` 基础上继续下降，去掉每代精英重复的 3-fold CV
+
+---
+
+## [v2.9.2] - 2026-03-11
+
+### 📋 适应度函数设计决策（无代码改动，仅文档澄清）
+
+经代码审查与业务验证，确认**适应度函数应使用且仅使用 AUC，无需添加其他指标**。理由：
+
+1. **KS/Precision/F1 本质上是 AUC 的阈值依赖产物**：在相同的 OOF 概率分布下，AUC 已包含全部排序信息；Precision/F1 随阈值变化，不稳定
+2. **样本不平衡下的 Precision 失真**：正样本占比 4.48% 时，Precision=0.076 并不代表模型差，数学上等价于 1:1 平衡集下 Precision≈0.64，与人工建模持平
+3. **对抗机制（Saboteur）代码已完备，但权重全为 0**：`economics`/`causal`/`synthesis` 三个评分项接口预留，当前均设为 weight=0，不影响搜索，无需改动
+4. **单目标 AUC 使遗传搜索更稳定**：多目标加权需人工调参权重，引入额外超参风险，性价比不高
+
+**结论**：`main.py` 中 `fitness_weights = {'auc': 1.0, 'economics': 0.0, 'causal': 0.0, 'synthesis': 0.0}` 配置正确，**无需修改代码**。
+
+### Changed（文档修正）
+
+#### PROJECT_CONTEXT.md
+| 改动项 | 旧表述 | 新表述 | 原因 |
+|--------|--------|--------|------|
+| §二点三 评分指标 | `AUC（主指标）` | `AUC（唯一评分依据，weight=1.0）` | 措辞"主指标"暗示还有副指标参与打分，产生误导 |
+| 变更日志表格 | 缺少 v2.9.1/v2.9.2 记录 | 补充两条记录 | 保持文档与 CHANGELOG 同步 |
+
+---
+
+## [v2.9.1] - 2026-03-09
+
+### 🔍 变更背景
+通过代码审计发现 `FitnessEvaluator.evaluate()` 在**每次**调用时都无条件执行 `model_pipeline.fit(X, y)` 全量训练（[architect.py L873](src/architect.py#L873)），但在遗传搜索阶段，驱动选择的 AUC 完全由 `cross_val_predict` 的 OOF 概率决定（[architect.py L810](src/architect.py#L810)），全量 fit 产出的 pipeline 对搜索过程**零贡献**。
+
+以默认配置 5代×6个体 计算：
+- 30 次普通评估的 full fit 全部被丢弃（浪费 30 次全量训练）
+- 5 次精英重评估中 CV 部分也是重复计算（浪费 15 次 fold 训练）
+- 折算后浪费约 **38%** 的总训练时间
+
+### Changed（修改）
+
+#### architect.py
+| 改动项 | 旧逻辑 | 新逻辑 | 原因 |
+|--------|--------|--------|------|
+| `evaluate()` 签名 | `(chromosome, calculate_shap=False)` | `(chromosome, calculate_shap=False, train_final_model=True)` | 新增参数控制是否执行全量 fit |
+| `evaluate()` 全量训练 | 无条件执行 `model_pipeline.fit(X, y)` | 仅当 `train_final_model=True` 时执行 full fit + SHAP | 搜索阶段只需 CV 出 AUC，无需全量训练 |
+
+#### main.py
+| 改动项 | 旧逻辑 | 新逻辑 | 原因 |
+|--------|--------|--------|------|
+| 普通评估调用 | `evaluate(chromosome)` | `evaluate(chromosome, train_final_model=False)` | 搜索阶段跳过无用的 full fit |
+| 精英评估调用 | `evaluate(elite, calculate_shap=True)` | `evaluate(elite, calculate_shap=True, train_final_model=True)` | 冠军需要保存完整 pipeline，必须做 full fit |
+
+### 影响评估
+- **AUC 搜索效果**: **零影响**。搜索选择完全由 `cross_val_predict` OOF 概率驱动，full fit 从未参与评分
+- **最终模型质量**: **零影响**。冠军的精英评估仍执行完整的 full fit + SHAP
+- **训练耗时**: 预计节省 **~38%**（40W 数据规模下约节省数分钟）
+
+---
+
 ## [v2.9] - 2026-02-28
 
 ### 🔍 变更背景

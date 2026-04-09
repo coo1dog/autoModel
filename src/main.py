@@ -112,9 +112,11 @@ class ControlUnit:
         # 1. 初始化种群（从外部传入 evo_config）
         population = self.evo_engine.initialize_population(population_size, config=evo_config)
         
-        # V2.1 修复：在循环外声明，以保存最后一代的冠军
+        # 追踪全局最佳冠军，而不是简单覆盖为最后一代冠军
         champion_chromosome = None
         champion_eval_results = None
+        champion_generation = None
+        champion_score = float('-inf')
 
         for gen in range(generations):
             logging.info(f"\n--- 世代 {gen+1}/{generations} ---")
@@ -128,7 +130,8 @@ class ControlUnit:
             start_gen_time = time.time()
 
             for chromosome in population:
-                eval_result = self.fitness_evaluator.evaluate(chromosome)
+                # [V2.9.1] 搜索阶段只做CV出AUC，不做全量fit，节省~38%训练时间
+                eval_result = self.fitness_evaluator.evaluate(chromosome, train_final_model=False)
                 evaluation_results.append(eval_result)
                 penalties = {}
                 for attacker_name, attacker_instance in self.attackers.items():
@@ -164,14 +167,24 @@ class ControlUnit:
             best_individual_index = np.argmax(comprehensive_scores)
             elite_chromosome = population[best_individual_index]
 
-            logging.info(f"\n[精英学习] 对本代冠军 (AUC: {all_base_aucs[best_individual_index]:.4f}) 进行 SHAP 精炼...")
-            # V2.1 修复：在评估精英时就获取其包含完整Pipeline的评估结果
-            elite_eval_result = self.fitness_evaluator.evaluate(elite_chromosome, calculate_shap=True)
-            
-            # V2.1 修复：将本次循环找到的精英及其评估结果（包含已训练的Pipeline）存为最终冠军候选
-            champion_chromosome = elite_chromosome
-            champion_eval_results = elite_eval_result
-            
+            elite_score = comprehensive_scores[best_individual_index]
+            elite_base_eval_result = evaluation_results[best_individual_index]
+
+            logging.info(f"\n[精英学习] 对本代冠军 (AUC: {all_base_aucs[best_individual_index]:.4f}) 进行 full fit + SHAP 精炼...")
+            # [V2.9.3] 复用本代已算好的CV指标，只为精英补做全量fit + SHAP，避免重复3-fold CV
+            elite_eval_result = self.fitness_evaluator.finalize_chromosome(
+                elite_chromosome,
+                base_result=elite_base_eval_result,
+                calculate_shap=True
+            )
+
+            if elite_score > champion_score:
+                champion_score = elite_score
+                champion_generation = gen + 1
+                champion_chromosome = elite_chromosome
+                champion_eval_results = elite_eval_result
+                logging.info(f"[控制单元] 全局最佳冠军已刷新：第 {champion_generation} 代，综合得分 {champion_score:.4f}")
+
             shap_values = elite_eval_result.get('shap_values')
             if shap_values:
                 refined_elite = self.evo_engine.refine_chromosome(elite_chromosome, shap_values)
@@ -190,14 +203,18 @@ class ControlUnit:
 
         logging.info("\n--- V1.0 \"对抗性共演化\"结束 ---")
 
-        # 7. V2.1 修复：返回在最后一次循环中保存的、正确配对的冠军染色体和评估结果
-        logging.info(f"[控制单元] 最终冠军 (综合得分: {max(comprehensive_scores):.4f}):")
+        if champion_chromosome is None or champion_eval_results is None:
+            raise RuntimeError("演化结束后未能确定全局冠军。")
+
+        logging.info(f"[控制单元] 最终冠军来自第 {champion_generation} 代 (综合得分: {champion_score:.4f}):")
         logging.info(f"  - 基础 AUC: {champion_eval_results.get('auc', 0.0):.4f}")
         logging.info(f"  - KS 值: {champion_eval_results.get('ks', 'N/A')}")
         logging.info(f"  - Precision: {champion_eval_results.get('precision', 'N/A')}")
         logging.info(f"  - Recall: {champion_eval_results.get('recall', 'N/A')}")
         logging.info(f"  - F1: {champion_eval_results.get('f1', 'N/A')}")
         logging.info(f"  - 评估耗时: {champion_eval_results.get('evaluation_time_ms', 0.0):.0f} ms")
+        logging.info(f"  - CV耗时: {champion_eval_results.get('cv_evaluation_time_ms', 0.0):.0f} ms")
+        logging.info(f"  - Final fit+SHAP耗时: {champion_eval_results.get('final_training_time_ms', 0.0):.0f} ms")
         logging.info(f"  - 特征数量: {champion_eval_results.get('feature_count', 0)}")
         logging.info(f"  - 最终基因:")
         logging.info(json.dumps(champion_chromosome, default=lambda o: o.__dict__, indent=4, ensure_ascii=False))
